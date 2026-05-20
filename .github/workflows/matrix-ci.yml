@@ -1,0 +1,123 @@
+name: Matrix build enterprise
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build matrix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [18, 20]
+        mode: [debug, release]
+        env: [dev, staging]
+        include:
+          - os: ubuntu-latest
+            node: 20
+            mode: release
+            env: production
+            production: true
+            EXTRA_FLAGS: "--optimize"
+        exclude:
+          - os: windows-latest
+            node: 20
+            mode: debug
+          - env: production
+            mode: debug
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Prepare environment
+        run: |
+          echo "MODE=${{ matrix.mode }}" >> $GITHUB_ENV
+          echo "ENVIRONMENT=${{ matrix.env }}" >> $GITHUB_ENV
+          echo "MATRIX_OS=${{ matrix.os }}" >> $GITHUB_ENV
+          echo "MATRIX_NODE=${{ matrix.node }}" >> $GITHUB_ENV
+          if [ "${{ matrix.production || '' }}" = "true" ]; then
+            echo "PRODUCTION=true" >> $GITHUB_ENV
+            echo "EXTRA_FLAGS=${{ matrix.EXTRA_FLAGS }}" >> $GITHUB_ENV
+          fi
+        shell: bash
+
+      - name: Run build/test (simulated)
+        id: run_build
+        run: |
+          START=$(date +%s)
+          echo "Runner: $RUNNER_OS"
+          echo "Node: $(node -v)"
+          # Simulate work and vary exit based on an unlikely invalid combo
+          sleep 1
+          if [ "${ENVIRONMENT}" = "production" ] && [ "${MODE}" = "debug" ]; then
+            echo "Invalid production debug combo" >&2
+            END=$(date +%s)
+            DURATION=$((END-START))
+            echo "duration=$DURATION" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          END=$(date +%s)
+          DURATION=$((END-START))
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Write job summary artifact
+        if: always()
+        run: |
+          RESULT="${{ job.status }}"
+          cat > summary.json <<EOF
+          {
+            "os": "${{ matrix.os }}",
+            "node": "${{ matrix.node }}",
+            "mode": "${{ matrix.mode }}",
+            "env": "${{ matrix.env }}",
+            "production": "${{ matrix.production || '' }}",
+            "extra_flags": "${{ matrix.EXTRA_FLAGS || '' }}",
+            "result": "$RESULT",
+            "duration": "${{ steps.run_build.outputs.duration }}"
+          }
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: job-summary-${{ matrix.os }}-${{ matrix.node }}-${{ matrix.mode }}-${{ matrix.env }}
+          path: summary.json
+
+  summary:
+    name: Generate pipeline summary
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download all job summaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate combined markdown summary
+        run: |
+          node scripts/generate-summary.js artifacts summary.md
+
+      - name: Attach summary to workflow run
+        run: |
+          echo "### Pipeline matrix summary" >> $GITHUB_STEP_SUMMARY
+          cat summary.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload pipeline summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-summary
+          path: summary.md
