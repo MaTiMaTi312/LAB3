@@ -56,20 +56,7 @@ jobs:
 
       - name: Write job summary artifact
         if: always()
-        run: |
-          RESULT="${{ job.status }}"
-          cat > summary.json <<EOF
-          {
-            "os": "${{ matrix.os }}",
-            "node": "${{ matrix.node }}",
-            "mode": "${{ matrix.mode }}",
-            "env": "${{ matrix.env }}",
-            "production": "${{ matrix.production || '' }}",
-            "extra_flags": "${{ matrix.EXTRA_FLAGS || '' }}",
-            "result": "$RESULT",
-            "duration": "${{ steps.run_build.outputs.duration }}"
-          }
-          EOF
+        run: node scripts/write-summary.js "${{ job.status }}" "${{ steps.run_build.outputs.duration }}"
 
       - uses: actions/upload-artifact@v4
         with:

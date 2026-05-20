@@ -1,0 +1,10 @@
+{
+  "os": "windows-latest",
+  "node": "18",
+  "mode": "debug",
+  "env": "dev",
+  "production": "",
+  "extra_flags": "",
+  "result": "success",
+  "duration": "2"
+}
